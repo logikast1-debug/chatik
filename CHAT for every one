@@ -1,0 +1,305 @@
+import base64
+import io
+import os
+import threading
+from socket import socket, AF_INET, SOCK_STREAM
+
+from customtkinter import *
+from tkinter import filedialog
+from PIL import Image
+
+set_appearance_mode("light")
+
+class MainWindow(CTk):
+    def __init__(self):
+        super().__init__()
+
+        self.geometry('540x440')
+        self.title("🌿 Chat")
+        self.configure(fg_color="#F4F1EA")
+
+        self.username = "Ваня"
+
+        self.message_queue = []
+
+        self.c_sidebar = "#E6E1D6"
+        self.c_chat_bg = "#FAF8F5"
+        self.c_olive = "#5F7464"
+        self.c_olive_hover = "#4B5D4F"
+        self.c_terracotta = "#D08C60"
+        self.c_terra_hover = "#B8764B"
+        self.c_my_card = "#DCE5DC"
+        self.c_other_card = "#FFFFFF"
+        self.c_text_dark = "#2C3531"
+
+        self.label = None
+        self.menu_frame = CTkFrame(
+            self, width=46, height=440,
+            fg_color=self.c_sidebar, corner_radius=0,
+            border_width=1, border_color="#D5CFC2"
+        )
+        self.menu_frame.pack_propagate(False)
+        self.menu_frame.place(x=0, y=0)
+        self.is_show_menu = False
+        self.speed_animate_menu = -20
+
+        # Круглая кнопка настроек
+        self.btn = CTkButton(
+            self, text='⚙', command=self.toggle_show_menu,
+            width=34, height=34, corner_radius=17,
+            fg_color=self.c_olive, hover_color=self.c_olive_hover,
+            text_color="#FFFFFF", font=('Verdana', 15)
+        )
+        self.btn.place(x=6, y=10)
+
+        # === ОСНОВНОЕ ПОЛЕ ЧАТА ===
+        self.chat_field = CTkScrollableFrame(
+            self, fg_color=self.c_chat_bg, corner_radius=8,
+            border_width=1, border_color="#E2DDD2",
+            scrollbar_button_color="#D5CFC2",
+            scrollbar_button_hover_color=self.c_olive
+        )
+        self.chat_field.place(x=0, y=0)
+
+        # === КАПСУЛЬНАЯ ПАНЕЛЬ ВВОДА И КНОПКИ ===
+        self.message_entry = CTkEntry(
+            self, placeholder_text='Напишіть щось цікаве...',
+            height=40, corner_radius=20,
+            fg_color="#FFFFFF", border_color="#D5CFC2", border_width=2,
+            text_color=self.c_text_dark, placeholder_text_color="#9E9A90",
+            font=('Verdana', 12)
+        )
+        self.message_entry.place(x=0, y=0)
+        self.message_entry.bind("", lambda event: self.send_message())
+
+        self.send_button = CTkButton(
+            self, text='Надіслати', width=95, height=40, corner_radius=20,
+            fg_color=self.c_olive, hover_color=self.c_olive_hover,
+            text_color="#FFFFFF", font=('Verdana', 12, 'bold'),
+            command=self.send_message
+        )
+        self.send_button.place(x=0, y=0)
+
+        self.open_img_button = CTkButton(
+            self, text='📷', width=42, height=40, corner_radius=20,
+            fg_color=self.c_terracotta, hover_color=self.c_terra_hover,
+            text_color="#FFFFFF", font=('Verdana', 15),
+            command=self.open_image
+        )
+        self.open_img_button.place(x=0, y=0)
+
+        self.adaptive_ui()
+
+        try:
+            self.add_message("Демонстрація відображення зображення:",
+                             CTkImage(Image.open('image.jpg'), size=(250, 250)))
+        except:
+            pass
+
+        try:
+            self.sock = socket(AF_INET, SOCK_STREAM)
+            self.sock.connect(('localhost', 8080))
+            hello = f"TEXT@{self.username}@[SYSTEM] {self.username} приєднався(лась) до чату!\n"
+            self.sock.send(hello.encode('utf-8'))
+            threading.Thread(target=self.recv_message, daemon=True).start()
+        except Exception as e:
+            self.add_message(f"Не вдалося підключитися до сервера: {e}")
+
+    def toggle_show_menu(self):
+        if self.is_show_menu:
+            self.is_show_menu = False
+            self.speed_animate_menu *= -1
+            self.btn.configure(text='⚙')
+            self.show_menu()
+        else:
+            self.is_show_menu = True
+            self.speed_animate_menu *= -1
+            self.btn.configure(text='◁')
+            self.show_menu()
+
+            # Элементы внутри выезжающего меню
+            self.label = CTkLabel(
+                self.menu_frame, text='Налаштування\nімені',
+                font=('Verdana', 13, 'bold'), text_color=self.c_text_dark
+            )
+            self.label.pack(pady=(65, 15))
+
+            self.entry = CTkEntry(
+                self.menu_frame, placeholder_text="Введіть ім'я...",
+                height=34, corner_radius=17,
+                fg_color="#FFFFFF", border_color="#C5BFA2", border_width=1,
+                text_color=self.c_text_dark, font=('Verdana', 11)
+            )
+            self.entry.pack(padx=14, pady=5, fill='x')
+
+            self.save_button = CTkButton(
+                self.menu_frame, text="Оновити", height=34, corner_radius=17,
+                fg_color=self.c_terracotta, hover_color=self.c_terra_hover,
+                text_color="#FFFFFF", font=('Verdana', 11, 'bold'),
+                command=self.save_name
+            )
+            self.save_button.pack(padx=14, pady=10, fill='x')
+
+    def show_menu(self):
+        self.menu_frame.configure(width=self.menu_frame.winfo_width() + self.speed_animate_menu)
+        if not self.menu_frame.winfo_width() >= 200 and self.is_show_menu:
+            self.after(10, self.show_menu)
+        elif self.menu_frame.winfo_width() >= 55 and not self.is_show_menu:
+            self.after(10, self.show_menu)
+            if self.label:
+                self.label.destroy()
+            if getattr(self, "entry", None):
+                self.entry.destroy()
+            if getattr(self, "save_button", None):
+                self.save_button.destroy()
+
+    def save_name(self):
+        new_name = self.entry.get().strip()
+        if new_name:
+            self.username = new_name
+            self.add_message(f"Ваш новий нік: {self.username}")
+
+    def adaptive_ui(self):
+        w = self.winfo_width()
+        h = self.winfo_height()
+        menu_w = self.menu_frame.winfo_width()
+
+        self.menu_frame.configure(height=h)
+
+        # Поле чата
+        self.chat_field.place(x=menu_w + 12, y=12)
+        self.chat_field.configure(
+            width=max(100, w - menu_w - 36),
+            height=max(100, h - 76)
+        )
+
+        # Нижняя панель: сначала кнопка камеры, затем поле ввода, справа "Надіслати"
+        bottom_y = h - 50
+        self.open_img_button.place(x=menu_w + 12, y=bottom_y)
+
+        self.send_button.place(x=w - 107, y=bottom_y)
+
+        self.message_entry.place(x=menu_w + 60, y=bottom_y)
+        self.message_entry.configure(
+            width=max(50, w - menu_w - 175)
+        )
+
+        # Безопасно достаем сообщения из очереди
+        while len(self.message_queue) > 0:
+            line = self.message_queue.pop(0)
+            self.handle_line(line)
+
+        self.after(50, self.adaptive_ui)
+
+    def add_message(self, message, img=None):
+        # Определяем свои и чужие сообщения для разного цвета карточек
+        is_mine = message.startswith(f"{self.username}:") or (message == "" and img is not None)
+
+        card_bg = self.c_my_card if is_mine else self.c_other_card
+        border_col = "#A3B8A6" if is_mine else "#E2DDD2"
+
+        # В этом дизайне сообщения выглядят как широкие заметки-карточки с минимальным скруглением
+        message_frame = CTkFrame(
+            self.chat_field,
+            fg_color=card_bg,
+            corner_radius=6,
+            border_width=1,
+            border_color=border_col
+        )
+        # Карточки свои сдвигаем чуть правее за счет отступа padx=(50, 6), чужие — левее padx=(6, 50)
+        pad_x = (50, 6) if is_mine else (6, 50)
+        message_frame.pack(pady=4, padx=pad_x, fill='x')
+
+        wrapleng_size = max(120, self.winfo_width() - self.menu_frame.winfo_width() - 110)
+
+        if not img:
+            CTkLabel(
+                message_frame, text=message, wraplength=wrapleng_size,
+                text_color=self.c_text_dark, font=('Verdana', 12),
+                justify='left', anchor='w'
+            ).pack(padx=12, pady=8, fill='x')
+        else:
+            CTkLabel(
+                message_frame, text=message, wraplength=wrapleng_size,
+                text_color=self.c_text_dark, font=('Verdana', 12),
+                image=img, compound='top', justify='left'
+            ).pack(padx=12, pady=8)
+
+        # Автоскролл вниз
+        self.chat_field._parent_canvas.yview_moveto(1.0)
+
+    def send_message(self):
+        message = self.message_entry.get()
+        if message:
+            self.add_message(f"{self.username}: {message}")
+            data = f"TEXT@{self.username}@{message}\n"
+            try:
+                self.sock.sendall(data.encode())
+            except Exception as e:
+                print(f"Помилка відправки: {e}")
+        self.message_entry.delete(0, END)
+
+    def recv_message(self):
+        buffer = ""
+        while True:
+            try:
+                chunk = self.sock.recv(4096)
+                if not chunk:
+                    print("З'єднання закрито сервером.")
+                    break
+                buffer += chunk.decode('utf-8', errors='ignore')
+
+                while "\n" in buffer:
+                    line, buffer = buffer.split("\n", 1)
+                    self.message_queue.append(line.strip())
+
+            except Exception as e:
+                print(f"Помилка прийому: {e}")
+                break
+        self.sock.close()
+
+    def handle_line(self, line):
+        if not line:
+            return
+        parts = line.split("@", 3)
+        msg_type = parts[0]
+
+        if msg_type == "TEXT":
+            if len(parts) >= 3:
+                author = parts[1]
+                message = parts[2]
+                self.add_message(f"{author}: {message}")
+        elif msg_type == "IMAGE":
+            if len(parts) >= 4:
+                author = parts[1]
+                filename = parts[2]
+                b64_img = parts[3]
+                try:
+                    img_data = base64.b64decode(b64_img)
+                    pil_img = Image.open(io.BytesIO(img_data))
+                    ctk_img = CTkImage(pil_img, size=(250, 250))
+                    self.add_message(f"{author} надіслав(ла) зображення: {filename}", img=ctk_img)
+                except Exception as e:
+                    self.add_message(f"Помилка відображення зображення: {e}")
+        else:
+            self.add_message(line)
+
+    def open_image(self):
+        file_name = filedialog.askopenfilename()
+        if not file_name:
+            return
+        try:
+            with open(file_name, "rb") as f:
+                raw = f.read()
+            b64_data = base64.b64encode(raw).decode()
+            short_name = os.path.basename(file_name)
+            data = f"IMAGE@{self.username}@{short_name}@{b64_data}\n"
+            self.sock.sendall(data.encode())
+            self.add_message('', CTkImage(light_image=Image.open(file_name), size=(250, 250)))
+        except Exception as e:
+            self.add_message(f"Не вдалося надіслати зображення: {e}")
+
+
+if __name__ == "__main__":
+    win = MainWindow()
+    win.mainloop()
